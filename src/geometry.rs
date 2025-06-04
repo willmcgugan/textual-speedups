@@ -41,6 +41,21 @@ pub struct GeometryOffset {
     pub y: i32,
 }
 
+#[derive(FromPyObject)]
+enum OffsetPair {
+    Tuple((i32, i32)),
+    Offset(GeometryOffset),
+}
+
+impl OffsetPair {
+    fn to_tuple(&self) -> (i32, i32) {
+        match self {
+            OffsetPair::Tuple(tuple) => *tuple,
+            OffsetPair::Offset(offset) => (offset.x, offset.y),
+        }
+    }
+}
+
 #[pymethods]
 impl GeometryOffset {
     #[new]
@@ -227,6 +242,20 @@ impl Size {
         (self.width, self.height)
     }
 
+    fn __add__(&self, size: (i32, i32)) -> Size {
+        Size {
+            width: self.width + size.0,
+            height: self.height + size.1,
+        }
+    }
+
+    fn __sub__(&self, size: (i32, i32)) -> Size {
+        Size {
+            width: self.width - size.0,
+            height: self.height - size.1,
+        }
+    }
+
     #[getter]
     fn region(&self) -> Region {
         Region {
@@ -410,7 +439,7 @@ impl Region {
     }
 
     fn __getitem__(&self, index: isize) -> PyResult<i32> {
-        let offset = if index < 0 { 2 + index } else { index };
+        let offset = if index < 0 { 4 + index } else { index };
         match offset {
             0 => Ok(self.x),
             1 => Ok(self.y),
@@ -451,6 +480,15 @@ impl Region {
             })
         } else {
             Err(PyTypeError::new_err("Expected tuple of (int, int)"))
+        }
+    }
+
+    fn get_spacing_between(&self, region: &Region) -> Spacing {
+        Spacing {
+            top: region.y - self.y,
+            right: self.right() - region.right(),
+            bottom: self.bottom() - region.bottom(),
+            left: region.x - self.x,
         }
     }
 
@@ -627,8 +665,8 @@ impl Region {
             && (y2 >= oy2 && oy2 >= y1);
     }
 
-    fn translate(&self, offset: (i32, i32)) -> Region {
-        let (offset_x, offset_y) = offset;
+    fn translate(&self, offset: OffsetPair) -> Region {
+        let (offset_x, offset_y) = offset.to_tuple();
         Region {
             x: self.x + offset_x,
             y: self.y + offset_y,
@@ -898,6 +936,52 @@ pub struct Spacing {
 
 #[pymethods]
 impl Spacing {
+    fn new(
+        &self,
+        top: Option<i32>,
+        right: Option<i32>,
+        bottom: Option<i32>,
+        left: Option<i32>,
+    ) -> Spacing {
+        Spacing {
+            top: top.unwrap_or(0),
+            right: right.unwrap_or(0),
+            bottom: bottom.unwrap_or(0),
+            left: left.unwrap_or(0),
+        }
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "Spacing(top={}, right={}, bottom={}, left={})",
+            self.top, self.right, self.bottom, self.left
+        )
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<i32> {
+        let offset = if index < 0 { 4 + index } else { index };
+        match offset {
+            0 => Ok(self.top),
+            1 => Ok(self.right),
+            2 => Ok(self.bottom),
+            3 => Ok(self.left),
+            _ => Err(PyIndexError::new_err("index out of range")),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        4
+    }
+
+    #[getter]
+    fn width(&self) -> i32 {
+        self.left + self.right
+    }
+
+    #[getter]
+    fn height(&self) -> i32 {
+        self.top + self.bottom
+    }
+
     #[getter]
     fn max_width(&self) -> i32 {
         self.left.max(self.right)
@@ -906,5 +990,9 @@ impl Spacing {
     #[getter]
     fn max_height(&self) -> i32 {
         self.top.max(self.bottom)
+    }
+
+    fn __bool__(&self) -> bool {
+        self.top != 0 || self.right != 0 || self.bottom != 0 || self.right != 0
     }
 }
