@@ -348,7 +348,10 @@ impl Region {
         }
     }
 
+    #[classmethod]
+    #[pyo3(signature=(window_region, region, *, top = false))]
     pub fn get_scroll_to_visible(
+        _cls: &Bound<'_, PyType>,
         window_region: &Region,
         region: &Region,
         top: bool,
@@ -751,5 +754,157 @@ impl Region {
             width: x2.max(ox2) - x,
             height: y2.max(oy2) - y,
         }
+    }
+
+    fn split(&self, mut cut_x: i32, mut cut_y: i32) -> (Region, Region, Region, Region) {
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = *self;
+
+        if cut_x < 0 {
+            cut_x = width + cut_x;
+        }
+        if cut_y < 0 {
+            cut_y = height + cut_y;
+        }
+        (
+            Region {
+                x: x,
+                y: y,
+                width: cut_x,
+                height: cut_y,
+            },
+            Region {
+                x: x + cut_x,
+                y: y,
+                width: width - cut_x,
+                height: cut_y,
+            },
+            Region {
+                x: x,
+                y: y + cut_y,
+                width: cut_x,
+                height: height - cut_y,
+            },
+            Region {
+                x: x + cut_x,
+                y: y + cut_y,
+                width: width - cut_x,
+                height: height - cut_y,
+            },
+        )
+    }
+
+    fn split_horizontal(&self, mut cut: i32) -> (Region, Region) {
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = *self;
+        if cut < 0 {
+            cut = height + cut;
+        }
+        (
+            Region {
+                x: x,
+                y: y,
+                width: width,
+                height: cut,
+            },
+            Region {
+                x: x,
+                y: y + cut,
+                width: width,
+                height: height - cut,
+            },
+        )
+    }
+
+    #[pyo3(signature=(container, x_axis=true, y_axis=true))]
+    fn translate_inside(&self, container: &Region, x_axis: bool, y_axis: bool) -> Region {
+        let Region {
+            x: x1,
+            y: y1,
+            width: width1,
+            height: height1,
+        } = *container;
+        let Region {
+            x: x2,
+            y: y2,
+            width: width2,
+            height: height2,
+        } = *self;
+        Region {
+            x: if x_axis {
+                x2.min(x1 + width1 - width2).max(x1)
+            } else {
+                x2
+            },
+            y: if y_axis {
+                y2.min(y1 + height1 - height2).max(y1)
+            } else {
+                y2
+            },
+            width: width2,
+            height: height2,
+        }
+    }
+
+    #[pyo3(signature = (x_axis=1, y_axis=1, margin=None))]
+    fn inflect(&self, x_axis: i32, y_axis: i32, margin: Option<Spacing>) -> Region {
+        let inflect_margin = margin.unwrap_or(Spacing {
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+        });
+        let Region {
+            mut x,
+            mut y,
+            width,
+            height,
+        } = *self;
+        if x_axis != 0 {
+            x = x + (width + inflect_margin.max_width()) * x_axis;
+        }
+        if y_axis != 0 {
+            y = y + (height + inflect_margin.max_height()) * y_axis;
+        }
+        Region {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+}
+
+#[pyclass(frozen)]
+#[derive(Debug, Clone)]
+pub struct Spacing {
+    #[pyo3(get)]
+    pub top: i32,
+    #[pyo3(get)]
+    pub right: i32,
+    #[pyo3(get)]
+    pub bottom: i32,
+    #[pyo3(get)]
+    pub left: i32,
+}
+
+#[pymethods]
+impl Spacing {
+    #[getter]
+    fn max_width(&self) -> i32 {
+        self.left.max(self.right)
+    }
+
+    #[getter]
+    fn max_height(&self) -> i32 {
+        self.top.max(self.bottom)
     }
 }

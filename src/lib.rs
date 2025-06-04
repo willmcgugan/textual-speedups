@@ -14,5 +14,6 @@ fn textual_speedups(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<geometry::GeometryOffset>()?;
     m.add_class::<geometry::Size>()?;
     m.add_class::<geometry::Region>()?;
+    m.add_class::<geometry::Spacing>()?;
     Ok(())
 }
