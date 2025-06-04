@@ -1,0 +1,755 @@
+#![allow(dead_code)]
+
+use pyo3::exceptions::PyIndexError;
+use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::pyclass;
+
+use pyo3::types::PyAny;
+use pyo3::types::PyRange;
+use pyo3::types::PyType;
+use pyo3::PyResult;
+use std::cmp::Ord;
+
+pub fn clamp<T: Ord + Copy>(value: T, minimum: T, maximum: T) -> T {
+    if minimum > maximum {
+        if value < maximum {
+            return maximum;
+        }
+        if value > minimum {
+            return minimum;
+        }
+        value
+    } else {
+        if value < minimum {
+            return minimum;
+        }
+        if value > maximum {
+            return maximum;
+        }
+        value
+    }
+}
+
+#[pyclass(name = "Offset")]
+#[derive(Debug, Clone)]
+pub struct GeometryOffset {
+    #[pyo3(get)]
+    pub x: i32,
+    #[pyo3(get)]
+    pub y: i32,
+}
+
+#[pymethods]
+impl GeometryOffset {
+    #[new]
+    fn new(x: i32, y: i32) -> Self {
+        GeometryOffset { x, y }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Offset(x={}, y={})", self.x, self.y)
+    }
+
+    #[getter]
+    pub fn is_origin(&self) -> bool {
+        self.x == 0 && self.y == 0
+    }
+
+    #[getter]
+    pub fn clamped(&self) -> Self {
+        GeometryOffset {
+            x: if self.x < 0 { 0 } else { self.x },
+            y: if self.y < 0 { 0 } else { self.y },
+        }
+    }
+
+    #[getter]
+    pub fn transpose(&self) -> (i32, i32) {
+        (self.y, self.x)
+    }
+
+    fn __bool__(&self) -> bool {
+        self.x != 0 || self.y != 0
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<i32> {
+        let offset = if index < 0 { 2 + index } else { index };
+        match offset {
+            0 => Ok(self.x),
+            1 => Ok(self.y),
+            _ => Err(PyErr::new::<PyIndexError, _>(
+                "Offset index is out of range",
+            )),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        2
+    }
+
+    fn __add__(&self, rhs: &Bound<PyAny>) -> PyResult<GeometryOffset> {
+        if let Ok(offset) = rhs.extract::<GeometryOffset>() {
+            Ok(GeometryOffset {
+                x: self.x + offset.x,
+                y: self.y + offset.y,
+            })
+        } else if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
+            Ok(GeometryOffset {
+                x: self.x + x,
+                y: self.y + y,
+            })
+        } else {
+            Err(PyTypeError::new_err(
+                "Expected Offset or tuple of (int, int)",
+            ))
+        }
+    }
+
+    fn __sub__(&self, rhs: &Bound<PyAny>) -> PyResult<GeometryOffset> {
+        if let Ok(offset) = rhs.extract::<GeometryOffset>() {
+            Ok(GeometryOffset {
+                x: self.x - offset.x,
+                y: self.y - offset.y,
+            })
+        } else if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
+            Ok(GeometryOffset {
+                x: self.x - x,
+                y: self.y - y,
+            })
+        } else {
+            Err(PyTypeError::new_err(
+                "Expected Offset or tuple of (int, int)",
+            ))
+        }
+    }
+
+    fn __mul__(&self, rhs: &Bound<PyAny>) -> PyResult<GeometryOffset> {
+        if let Ok(factor) = rhs.extract::<i32>() {
+            Ok(GeometryOffset {
+                x: self.x * factor,
+                y: self.y * factor,
+            })
+        } else if let Ok(factor) = rhs.extract::<f64>() {
+            Ok(GeometryOffset {
+                x: (self.x as f64 * factor).floor() as i32,
+                y: (self.y as f64 * factor).floor() as i32,
+            })
+        } else if let Ok(factor) = rhs.extract::<(i32, i32)>() {
+            Ok(GeometryOffset {
+                x: self.x * factor.0,
+                y: self.y * factor.1,
+            })
+        } else if let Ok(factor) = rhs.extract::<(f64, f64)>() {
+            Ok(GeometryOffset {
+                x: (self.x as f64 * factor.0).floor() as i32,
+                y: (self.y as f64 * factor.1).floor() as i32,
+            })
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "Can't multiply by this type",
+            ))
+        }
+    }
+
+    fn __neg__(&self) -> Self {
+        GeometryOffset {
+            x: -self.x,
+            y: -self.y,
+        }
+    }
+
+    pub fn blend(&self, destination: GeometryOffset, factor: f64) -> GeometryOffset {
+        let x = self.x as f64 + (destination.x as f64 - self.x as f64) * factor;
+        let y = self.y as f64 + (destination.y as f64 - self.y as f64) * factor;
+        GeometryOffset {
+            x: x.floor() as i32,
+            y: y.floor() as i32,
+        }
+    }
+
+    pub fn distance_to(&self, other: GeometryOffset) -> f64 {
+        let dx = (other.x - self.x) as f64;
+        let dy = (other.y - self.y) as f64;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    pub fn clamp(&self, width: i32, height: i32) -> Self {
+        GeometryOffset {
+            x: clamp(self.x, 0, width - 1),
+            y: clamp(self.y, 0, height - 1),
+        }
+    }
+}
+
+#[pyclass(frozen)]
+#[derive(Debug, Clone)]
+pub struct Size {
+    #[pyo3(get)]
+    pub width: i32,
+    #[pyo3(get)]
+    pub height: i32,
+}
+
+#[pymethods]
+impl Size {
+    #[new]
+    fn new(width: Option<i32>, height: Option<i32>) -> Self {
+        Size {
+            width: width.unwrap_or(0),
+            height: height.unwrap_or(0),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Size(width={}, height={})", self.width, self.height)
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<i32> {
+        let offset = if index < 0 { 2 + index } else { index };
+        match offset {
+            0 => Ok(self.width),
+            1 => Ok(self.height),
+            _ => Err(PyIndexError::new_err("index out of range")),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        2
+    }
+
+    fn __bool__(&self) -> bool {
+        return self.width * self.height != 0;
+    }
+
+    fn _as_tuple(&self) -> (i32, i32) {
+        (self.width, self.height)
+    }
+
+    #[getter]
+    fn region(&self) -> Region {
+        Region {
+            x: 0,
+            y: 0,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    #[getter]
+    fn area(&self) -> i32 {
+        self.width * self.height
+    }
+
+    #[getter]
+    fn line_range(&self, py: Python) -> PyResult<PyObject> {
+        let range = PyRange::new(py, 0, self.height as isize)?;
+        Ok(range.into())
+    }
+
+    fn with_width(&self, width: i32) -> Size {
+        Size {
+            width,
+            height: self.height,
+        }
+    }
+
+    fn with_height(&self, height: i32) -> Size {
+        Size {
+            width: self.width,
+            height,
+        }
+    }
+
+    fn contains(&self, x: i32, y: i32) -> bool {
+        x >= 0 && x <= self.width && y >= 0 && y <= self.height
+    }
+
+    fn contains_point(&self, point: (i32, i32)) -> bool {
+        let (x, y) = point;
+        self.contains(x, y)
+    }
+
+    fn __contains__(&self, rhs: &Bound<PyAny>) -> PyResult<bool> {
+        if let Ok(point) = rhs.extract::<(i32, i32)>() {
+            Ok(self.contains(point.0, point.1))
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "Dimensions.__contains__ requires an iterable of two integers",
+            ))
+        }
+    }
+}
+
+#[pyclass(frozen)]
+#[derive(Debug, Clone)]
+pub struct Region {
+    #[pyo3(get)]
+    pub x: i32,
+    #[pyo3(get)]
+    pub y: i32,
+    #[pyo3(get)]
+    pub width: i32,
+    #[pyo3(get)]
+    pub height: i32,
+}
+
+#[pymethods]
+impl Region {
+    #[new]
+    fn new(x: Option<i32>, y: Option<i32>, width: Option<i32>, height: Option<i32>) -> Self {
+        Region {
+            x: x.unwrap_or(0),
+            y: y.unwrap_or(0),
+            width: width.unwrap_or(0),
+            height: height.unwrap_or(0),
+        }
+    }
+
+    #[classmethod]
+    fn from_union(_cls: &Bound<'_, PyType>, regions: Vec<PyRef<Region>>) -> PyResult<Region> {
+        if regions.is_empty() {
+            return Err(PyValueError::new_err("At least one region expected"));
+        }
+
+        let min_x = regions.iter().map(|r| r.x).min().unwrap();
+        let max_x = regions.iter().map(|r| r.right()).max().unwrap();
+        let min_y = regions.iter().map(|r| r.y).min().unwrap();
+        let max_y = regions.iter().map(|r| r.bottom()).max().unwrap();
+
+        Ok(Region {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        })
+    }
+
+    #[classmethod]
+    fn from_corners(_cls: &Bound<'_, PyType>, x1: i32, y1: i32, x2: i32, y2: i32) -> Region {
+        Region {
+            x: x1,
+            y: y1,
+            width: x2 - x1,
+            height: y2 - y1,
+        }
+    }
+
+    #[classmethod]
+    fn from_offset(_cls: &Bound<'_, PyType>, offset: (i32, i32), size: (i32, i32)) -> Region {
+        let (x, y) = offset;
+        let (width, height) = size;
+        Region {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    pub fn get_scroll_to_visible(
+        window_region: &Region,
+        region: &Region,
+        top: bool,
+    ) -> GeometryOffset {
+        if !top && window_region.contains_region(region) {
+            // Region is already inside the window, so no need to move it.
+            return GeometryOffset { x: 0, y: 0 };
+        }
+
+        let (window_left, window_top, window_right, window_bottom) = window_region.corners();
+        let region = region.crop_size(window_region.size()._as_tuple());
+        let (left, top_, right, bottom) = region.corners();
+        let mut delta_x = 0;
+        let mut delta_y = 0;
+
+        if !((window_right > left && left >= window_left)
+            && (window_right > right && right >= window_left))
+        {
+            // The region does not fit
+            // The window needs to scroll on the X axis to bring region into view
+            let option1 = left - window_left;
+            let option2 = left - (window_right - region.width);
+            delta_x = if option1.abs() < option2.abs() {
+                option1
+            } else {
+                option2
+            };
+        }
+
+        if top {
+            delta_y = top_ - window_top;
+        } else if !((window_bottom > top_ && top_ >= window_top)
+            && (window_bottom > bottom && bottom >= window_top))
+        {
+            // The window needs to scroll on the Y axis to bring region into view
+            let option1 = top_ - window_top;
+            let option2 = top_ - (window_bottom - region.height);
+            delta_y = if option1.abs() < option2.abs() {
+                option1
+            } else {
+                option2
+            };
+        }
+
+        GeometryOffset {
+            x: delta_x,
+            y: delta_y,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Region(x={}, y={}, width={}, height={})",
+            self.x, self.y, self.width, self.height
+        )
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<i32> {
+        let offset = if index < 0 { 2 + index } else { index };
+        match offset {
+            0 => Ok(self.x),
+            1 => Ok(self.y),
+            2 => Ok(self.width),
+            3 => Ok(self.height),
+            _ => Err(PyIndexError::new_err("index out of range")),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        4
+    }
+
+    fn __bool__(&self) -> bool {
+        return self.width * self.height > 0;
+    }
+
+    fn __add__(&self, rhs: &Bound<PyAny>) -> PyResult<Region> {
+        if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
+            Ok(Region {
+                x: self.x + x,
+                y: self.y + y,
+                width: self.width,
+                height: self.height,
+            })
+        } else {
+            Err(PyTypeError::new_err("Expected tuple of (int, int)"))
+        }
+    }
+
+    fn __sub__(&self, rhs: &Bound<PyAny>) -> PyResult<Region> {
+        if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
+            Ok(Region {
+                x: self.x - x,
+                y: self.y - y,
+                width: self.width,
+                height: self.height,
+            })
+        } else {
+            Err(PyTypeError::new_err("Expected tuple of (int, int)"))
+        }
+    }
+
+    #[getter]
+    fn column_span(&self) -> (i32, i32) {
+        (self.x, self.x + self.width)
+    }
+
+    #[getter]
+    fn line_span(&self) -> (i32, i32) {
+        (self.y, self.y + self.height)
+    }
+
+    #[getter]
+    fn right(&self) -> i32 {
+        self.x + self.width
+    }
+
+    #[getter]
+    fn bottom(&self) -> i32 {
+        self.y + self.height
+    }
+
+    #[getter]
+    fn area(&self) -> i32 {
+        self.width * self.height
+    }
+
+    #[getter]
+    fn offset(&self) -> GeometryOffset {
+        GeometryOffset {
+            x: self.x,
+            y: self.y,
+        }
+    }
+
+    #[getter]
+    fn center(&self) -> (f64, f64) {
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = *self;
+        (
+            x as f64 + (width as f64) / 2.0,
+            y as f64 + (height as f64) / 2.0,
+        )
+    }
+
+    #[getter]
+    fn bottom_left(&self) -> GeometryOffset {
+        GeometryOffset {
+            x: self.x,
+            y: self.y + self.height,
+        }
+    }
+
+    #[getter]
+    fn top_right(&self) -> GeometryOffset {
+        GeometryOffset {
+            x: self.x + self.width,
+            y: self.y,
+        }
+    }
+
+    #[getter]
+    fn bottom_right(&self) -> GeometryOffset {
+        GeometryOffset {
+            x: self.x + self.width,
+            y: self.y + self.height,
+        }
+    }
+
+    #[getter]
+    fn bottom_right_inclusive(&self) -> GeometryOffset {
+        GeometryOffset {
+            x: self.x + self.width - 1,
+            y: self.y + self.height - 1,
+        }
+    }
+
+    #[getter]
+    fn size(&self) -> Size {
+        Size {
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    #[getter]
+    fn corners(&self) -> (i32, i32, i32, i32) {
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = *self;
+        (x, y, x + width, y + height)
+    }
+
+    #[getter]
+    fn column_range(&self, py: Python) -> PyResult<PyObject> {
+        let range = PyRange::new(py, self.x as isize, (self.x + self.width) as isize)?;
+        Ok(range.into())
+    }
+
+    #[getter]
+    fn line_range(&self, py: Python) -> PyResult<PyObject> {
+        let range = PyRange::new(py, self.y as isize, (self.y + self.height) as isize)?;
+        Ok(range.into())
+    }
+
+    #[getter]
+    fn reset_offset(&self) -> Self {
+        Region {
+            x: 0,
+            y: 0,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    fn at_offset(&self, offset: (i32, i32)) -> Region {
+        Region {
+            x: offset.0,
+            y: offset.1,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    fn crop_size(&self, size: (i32, i32)) -> Region {
+        Region {
+            x: self.x,
+            y: self.y,
+            width: self.width.min(size.0),
+            height: self.height.min(size.1),
+        }
+    }
+
+    fn expand(&self, size: (i32, i32)) -> Region {
+        let (expand_width, expand_height) = size;
+        Region {
+            x: self.x - expand_width,
+            y: self.y - expand_height,
+            width: self.width + expand_width * 2,
+            height: self.height + expand_height * 2,
+        }
+    }
+
+    fn overlaps(&self, other: &Region) -> bool {
+        let (x, y, x2, y2) = self.corners();
+        let (ox, oy, ox2, oy2) = other.corners();
+        return ((x2 > ox && ox >= x) || (x2 > ox2 && ox2 > x) || (ox < x && ox2 >= x2))
+            && ((y2 > oy && oy >= y) || (y2 > oy2 && oy2 > y) || (oy < y && oy2 >= y2));
+    }
+
+    fn contains(&self, x: i32, y: i32) -> bool {
+        self.x + self.width > x && x >= self.x && self.y + self.height > y && y >= self.y
+    }
+
+    fn contains_point(&self, point: (i32, i32)) -> bool {
+        let (x, y) = point;
+        self.contains(x, y)
+    }
+
+    fn contains_region(&self, other: &Region) -> bool {
+        let (x1, y1, x2, y2) = self.corners();
+        let (ox, oy, ox2, oy2) = other.corners();
+        return (x2 >= ox && ox >= x1)
+            && (y2 >= oy && oy >= y1)
+            && (x2 >= ox2 && ox2 >= x1)
+            && (y2 >= oy2 && oy2 >= y1);
+    }
+
+    fn translate(&self, offset: (i32, i32)) -> Region {
+        let (offset_x, offset_y) = offset;
+        Region {
+            x: self.x + offset_x,
+            y: self.y + offset_y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    fn __contains__(&self, rhs: &Bound<PyAny>) -> bool {
+        if let Ok(region) = rhs.extract::<Region>() {
+            self.contains_region(&region)
+        } else if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
+            self.contains(x, y)
+        } else if let Ok(GeometryOffset { x, y }) = rhs.extract::<GeometryOffset>() {
+            self.contains(x, y)
+        } else {
+            return false;
+        }
+    }
+
+    fn clip(&self, width: i32, height: i32) -> Region {
+        let (x1, y1, x2, y2) = self.corners();
+        Region {
+            x: clamp(x1, 0, width),
+            y: clamp(y1, 0, height),
+            width: clamp(x2, 0, width),
+            height: clamp(y2, 0, height),
+        }
+    }
+
+    fn grow(&self, margin: (i32, i32, i32, i32)) -> Region {
+        if margin == (0, 0, 0, 0) {
+            return self.clone();
+        }
+        let (top, right, bottom, left) = margin;
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = self;
+        Region {
+            x: x - left,
+            y: y - top,
+            width: 0.max(width + left + right),
+            height: 0.max(height + top + bottom),
+        }
+    }
+
+    fn shrink(&self, margin: (i32, i32, i32, i32)) -> Region {
+        if margin == (0, 0, 0, 0) {
+            return self.clone();
+        }
+        let (top, right, bottom, left) = margin;
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = self;
+        Region {
+            x: x + left,
+            y: y + top,
+            width: 0.max(width - (left + right)),
+            height: 0.max(height - (top + bottom)),
+        }
+    }
+
+    fn intersection(&self, region: &Region) -> Region {
+        // Unrolled because this method is used a lot
+        let (x1, y1, w1, h1) = (self.x, self.y, self.width, self.height);
+        let (cx1, cy1, w2, h2) = (region.x, region.y, region.width, region.height);
+        let x2 = x1 + w1;
+        let y2 = y1 + h1;
+        let cx2 = cx1 + w2;
+        let cy2 = cy1 + h2;
+
+        let rx1 = if x1 > cx2 {
+            cx2
+        } else if x1 < cx1 {
+            cx1
+        } else {
+            x1
+        };
+        let ry1 = if y1 > cy2 {
+            cy2
+        } else if y1 < cy1 {
+            cy1
+        } else {
+            y1
+        };
+        let rx2 = if x2 > cx2 {
+            cx2
+        } else if x2 < cx1 {
+            cx1
+        } else {
+            x2
+        };
+        let ry2 = if y2 > cy2 {
+            cy2
+        } else if y2 < cy1 {
+            cy1
+        } else {
+            y2
+        };
+
+        Region {
+            x: rx1,
+            y: ry1,
+            width: rx2 - rx1,
+            height: ry2 - ry1,
+        }
+    }
+
+    fn union(&self, region: &Region) -> Region {
+        let (x1, y1, x2, y2) = self.corners();
+        let (ox1, oy1, ox2, oy2) = region.corners();
+        let x = x1.min(ox1);
+        let y = y1.min(oy1);
+        Region {
+            x,
+            y,
+            width: x2.max(ox2) - x,
+            height: y2.max(oy2) - y,
+        }
+    }
+}
