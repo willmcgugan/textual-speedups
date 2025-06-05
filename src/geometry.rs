@@ -312,7 +312,7 @@ impl Size {
 }
 
 #[pyclass(frozen)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Region {
     #[pyo3(get)]
     pub x: i32,
@@ -736,7 +736,6 @@ impl Region {
     }
 
     fn intersection(&self, region: &Region) -> Region {
-        // Unrolled because this method is used a lot
         let (x1, y1, w1, h1) = (self.x, self.y, self.width, self.height);
         let (cx1, cy1, w2, h2) = (region.x, region.y, region.width, region.height);
         let x2 = x1 + w1;
@@ -919,10 +918,73 @@ impl Region {
             height,
         }
     }
+
+    fn constrain(
+        &self,
+        constrain_x: &str,
+        constrain_y: &str,
+        margin: &Spacing,
+        container: &Region,
+    ) -> Region {
+        let margin_region = self.grow(margin._as_tuple());
+        let mut region = *self;
+
+        fn compare_span(
+            span_start: i32,
+            span_end: i32,
+            container_start: i32,
+            container_end: i32,
+        ) -> i32 {
+            if span_start > container_start && span_end <= container_end {
+                0
+            } else if span_start < container_start {
+                -1
+            } else {
+                1
+            }
+        }
+
+        if constrain_x == "inflect" || constrain_y == "inflect" {
+            let x_axis = if constrain_x == "inflect" {
+                -compare_span(
+                    margin_region.x,
+                    margin_region.right(),
+                    container.x,
+                    container.right(),
+                )
+            } else {
+                0
+            };
+            let y_axis = if constrain_y == "inflect" {
+                -compare_span(
+                    margin_region.y,
+                    margin_region.bottom(),
+                    container.y,
+                    container.bottom(),
+                )
+            } else {
+                0
+            };
+            region = region.inflect(x_axis, y_axis, Some(*margin))
+        }
+
+        region.translate_inside(
+            &container.shrink(margin._as_tuple()),
+            constrain_x != "none",
+            constrain_y != "none",
+        )
+    }
+}
+
+enum SpacingDimensions {
+    Single(i32),
+    Tuple1(i32),
+    Tuple2(i32, i32),
+    Tuple4(i32, i32, i32, i32),
 }
 
 #[pyclass(frozen)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Spacing {
     #[pyo3(get)]
     pub top: i32,
@@ -936,8 +998,8 @@ pub struct Spacing {
 
 #[pymethods]
 impl Spacing {
+    #[new]
     fn new(
-        &self,
         top: Option<i32>,
         right: Option<i32>,
         bottom: Option<i32>,
@@ -972,6 +1034,10 @@ impl Spacing {
         4
     }
 
+    fn _as_tuple(&self) -> (i32, i32, i32, i32) {
+        (self.top, self.right, self.bottom, self.left)
+    }
+
     #[getter]
     fn width(&self) -> i32 {
         self.left + self.right
@@ -994,5 +1060,110 @@ impl Spacing {
 
     fn __bool__(&self) -> bool {
         self.top != 0 || self.right != 0 || self.bottom != 0 || self.right != 0
+    }
+
+    #[getter]
+    fn css(&self) -> String {
+        let Spacing {
+            top,
+            right,
+            bottom,
+            left,
+        } = *self;
+        if top == right && right == bottom && bottom == left && left == top {
+            format!("{}", top)
+        } else if (top, right) == (bottom, left) {
+            format!("{} {}", top, right)
+        } else {
+            format!("{} {} {} {}", top, right, bottom, left)
+        }
+    }
+
+    #[classmethod]
+    fn unpack(_cls: &Bound<'_, PyType>, pad: &Bound<PyAny>) -> PyResult<Spacing> {
+        if let Ok(space) = pad.extract::<i32>() {
+            Ok(Spacing {
+                top: space,
+                right: space,
+                bottom: space,
+                left: space,
+            })
+        } else if let Ok((space,)) = pad.extract::<(i32,)>() {
+            Ok(Spacing {
+                top: space,
+                right: space,
+                bottom: space,
+                left: space,
+            })
+        } else if let Ok((top, right)) = pad.extract::<(i32, i32)>() {
+            Ok(Spacing {
+                top: top,
+                right: right,
+                bottom: top,
+                left: right,
+            })
+        } else if let Ok((top, right, bottom, left)) = pad.extract::<(i32, i32, i32, i32)>() {
+            Ok(Spacing {
+                top: top,
+                right: right,
+                bottom: bottom,
+                left: left,
+            })
+        } else {
+            Err(PyTypeError::new_err(
+                "Expected integer or tuple of 1, 2, 4 integers",
+            ))
+        }
+    }
+
+    #[classmethod]
+    fn vertical(_cls: &Bound<'_, PyType>, amount: i32) -> Spacing {
+        Spacing {
+            top: amount,
+            right: 0,
+            bottom: amount,
+            left: 0,
+        }
+    }
+
+    #[classmethod]
+    fn horizontal(_cls: &Bound<'_, PyType>, amount: i32) -> Spacing {
+        Spacing {
+            top: 0,
+            right: amount,
+            bottom: 0,
+            left: amount,
+        }
+    }
+
+    #[classmethod]
+    fn all(_cls: &Bound<'_, PyType>, amount: i32) -> Spacing {
+        Spacing {
+            top: amount,
+            right: amount,
+            bottom: amount,
+            left: amount,
+        }
+    }
+
+    fn grow_maximum(&self, other: &Spacing) -> Spacing {
+        let Spacing {
+            top,
+            right,
+            bottom,
+            left,
+        } = *self;
+        let Spacing {
+            top: other_top,
+            right: other_right,
+            bottom: other_bottom,
+            left: other_left,
+        } = *other;
+        Spacing {
+            top: top.max(other_top),
+            right: right.max(other_right),
+            bottom: bottom.max(other_bottom),
+            left: left.max(other_left),
+        }
     }
 }
