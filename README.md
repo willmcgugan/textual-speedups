@@ -29,12 +29,15 @@ In the future when I am more confident in stability then the environment variabl
 
 Currently, the classes in geometry.py have a Rust implementation.
 This includes `Offset`, `Size`, `Region`, and `Spacing`.
+These classes are used a lot internally when updating layout in particular.
 
 ## How much faster?
 
 That is yet to be determined.
 A little profiling suggests that pretty much all methods are several of magnitude faster than the pure-Python versions.
 This should add up to a respectable improvement, but until I've written a benchmark tool I won't be able to quantify that.
+
+Note that unless your Textual app is particularly complex, you might not even notice a difference!
 
 ## Bugs?
 
