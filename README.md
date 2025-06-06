@@ -20,8 +20,10 @@ For example:
 TEXTUAL_SPEEDUPS=1 python -m textual
 ```
 
+Note, that you will need the current main version to enable the speedups.
+
 The environment variable is there to discourage use in production.
-In the future, when I am more confident in stability then the environment variable will be used to opt-out of the Rust speedups.
+In the future when I am more confident in stability then the environment variable will be used to opt-out of the Rust speedups.
 
 ## What is faster?
 
