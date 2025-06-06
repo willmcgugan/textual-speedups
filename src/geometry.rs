@@ -5,12 +5,76 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyclass;
+use pyo3::types::PyIterator;
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use pyo3::types::PyAny;
 use pyo3::types::PyRange;
 use pyo3::types::PyType;
 use pyo3::PyResult;
 use std::cmp::Ord;
+
+pub fn extract_integer_pair(pair: &Bound<PyAny>) -> PyResult<(i32, i32)> {
+    if let Ok((x, y)) = pair.extract::<(i32, i32)>() {
+        return Ok((x, y));
+    }
+
+    let iter = PyIterator::from_object(pair)?;
+    let mut values = Vec::new();
+
+    for item in iter {
+        let item = item?;
+        let value: i32 = item.extract()?;
+        values.push(value);
+
+        if values.len() > 2 {
+            return Err(PyValueError::new_err(
+                "Too many values to unpack (expected 2)",
+            ));
+        }
+    }
+
+    if values.len() == 2 {
+        Ok((values[0], values[1]))
+    } else {
+        Err(PyValueError::new_err(format!(
+            "Not enough values to unpack (expected 2, got {})",
+            values.len()
+        )))
+    }
+}
+
+pub fn extract_integer_quad(pair: &Bound<PyAny>) -> PyResult<(i32, i32, i32, i32)> {
+    if let Ok(quad) = pair.extract::<(i32, i32, i32, i32)>() {
+        return Ok(quad);
+    }
+
+    let iter = PyIterator::from_object(pair)?;
+    let mut values = Vec::new();
+
+    for item in iter {
+        let item = item?;
+        let value: i32 = item.extract()?;
+        values.push(value);
+
+        if values.len() > 4 {
+            return Err(PyValueError::new_err(
+                "Too many values to unpack (expected 2)",
+            ));
+        }
+    }
+
+    if values.len() == 4 {
+        Ok((values[0], values[1], values[2], values[3]))
+    } else {
+        Err(PyValueError::new_err(format!(
+            "Not enough values to unpack (expected 4, got {})",
+            values.len()
+        )))
+    }
+}
 
 pub fn clamp<T: Ord + Copy>(value: T, minimum: T, maximum: T) -> T {
     if minimum > maximum {
@@ -59,6 +123,7 @@ impl OffsetPair {
 #[pymethods]
 impl GeometryOffset {
     #[new]
+    #[pyo3(signature=(x=0, y=0))]
     fn new(x: i32, y: i32) -> Self {
         GeometryOffset { x, y }
     }
@@ -98,6 +163,17 @@ impl GeometryOffset {
                 "Offset index is out of range",
             )),
         }
+    }
+
+    fn __eq__(&self, rhs: &GeometryOffset) -> bool {
+        self.x == rhs.x && self.y == rhs.y
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.x.hash(&mut hasher);
+        self.y.hash(&mut hasher);
+        hasher.finish() as isize
     }
 
     fn __len__(&self) -> usize {
@@ -184,7 +260,7 @@ impl GeometryOffset {
         }
     }
 
-    pub fn distance_to(&self, other: GeometryOffset) -> f64 {
+    pub fn get_distance_to(&self, other: GeometryOffset) -> f64 {
         let dx = (other.x - self.x) as f64;
         let dy = (other.y - self.y) as f64;
         (dx * dx + dy * dy).sqrt()
@@ -210,11 +286,9 @@ pub struct Size {
 #[pymethods]
 impl Size {
     #[new]
-    fn new(width: Option<i32>, height: Option<i32>) -> Self {
-        Size {
-            width: width.unwrap_or(0),
-            height: height.unwrap_or(0),
-        }
+    #[pyo3(signature=(width=0, height=0))]
+    fn new(width: i32, height: i32) -> Self {
+        Size { width, height }
     }
 
     fn __repr__(&self) -> String {
@@ -230,6 +304,17 @@ impl Size {
         }
     }
 
+    fn __eq__(&self, rhs: &Size) -> bool {
+        self.width == rhs.width && self.height == rhs.height
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.width.hash(&mut hasher);
+        self.height.hash(&mut hasher);
+        hasher.finish() as isize
+    }
+
     fn __len__(&self) -> usize {
         2
     }
@@ -242,17 +327,35 @@ impl Size {
         (self.width, self.height)
     }
 
-    fn __add__(&self, size: (i32, i32)) -> Size {
-        Size {
-            width: self.width + size.0,
-            height: self.height + size.1,
+    fn __add__(&self, size: &Bound<PyAny>) -> PyResult<Self> {
+        if let Ok(size) = size.extract::<(i32, i32)>() {
+            Ok(Size {
+                width: self.width + size.0,
+                height: self.height + size.1,
+            })
+        } else if let Ok(size) = size.extract::<Size>() {
+            Ok(Size {
+                width: self.width + size.width,
+                height: self.height + size.height,
+            })
+        } else {
+            Err(PyTypeError::new_err("Expected tuple of (int, int) or Size"))
         }
     }
 
-    fn __sub__(&self, size: (i32, i32)) -> Size {
-        Size {
-            width: self.width - size.0,
-            height: self.height - size.1,
+    fn __sub__(&self, size: &Bound<PyAny>) -> PyResult<Self> {
+        if let Ok(size) = size.extract::<(i32, i32)>() {
+            Ok(Size {
+                width: self.width - size.0,
+                height: self.height - size.1,
+            })
+        } else if let Ok(size) = size.extract::<Size>() {
+            Ok(Size {
+                width: self.width - size.width,
+                height: self.height - size.height,
+            })
+        } else {
+            Err(PyTypeError::new_err("Expected tuple of (int, int) or Size"))
         }
     }
 
@@ -292,12 +395,17 @@ impl Size {
     }
 
     fn contains(&self, x: i32, y: i32) -> bool {
-        x >= 0 && x <= self.width && y >= 0 && y <= self.height
+        x >= 0 && x < self.width && y >= 0 && y < self.height
     }
 
-    fn contains_point(&self, point: (i32, i32)) -> bool {
-        let (x, y) = point;
-        self.contains(x, y)
+    fn contains_point(&self, point: &Bound<PyAny>) -> bool {
+        if let Ok(point) = point.extract::<(i32, i32)>() {
+            self.contains(point.0, point.1)
+        } else if let Ok(point) = point.extract::<GeometryOffset>() {
+            self.contains(point.x, point.y)
+        } else {
+            false
+        }
     }
 
     fn __contains__(&self, rhs: &Bound<PyAny>) -> PyResult<bool> {
@@ -308,6 +416,10 @@ impl Size {
                 "Dimensions.__contains__ requires an iterable of two integers",
             ))
         }
+    }
+
+    fn clamp_offset(&self, offset: &GeometryOffset) -> GeometryOffset {
+        offset.clamp(self.width, self.height)
     }
 }
 
@@ -327,25 +439,51 @@ pub struct Region {
 #[pymethods]
 impl Region {
     #[new]
-    fn new(x: Option<i32>, y: Option<i32>, width: Option<i32>, height: Option<i32>) -> Self {
+    #[pyo3(signature=(x=0, y=0, width=0, height=0))]
+    fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
         Region {
-            x: x.unwrap_or(0),
-            y: y.unwrap_or(0),
-            width: width.unwrap_or(0),
-            height: height.unwrap_or(0),
+            x,
+            y,
+            width,
+            height,
         }
     }
 
+    fn __eq__(&self, rhs: &Region) -> bool {
+        self.x == rhs.x && self.y == rhs.y && self.width == rhs.width && self.height == rhs.height
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.x.hash(&mut hasher);
+        self.y.hash(&mut hasher);
+        self.width.hash(&mut hasher);
+        self.height.hash(&mut hasher);
+        hasher.finish() as isize
+    }
+
     #[classmethod]
-    fn from_union(_cls: &Bound<'_, PyType>, regions: Vec<PyRef<Region>>) -> PyResult<Region> {
-        if regions.is_empty() {
+    fn from_union(_cls: &Bound<'_, PyType>, regions: &Bound<PyAny>) -> PyResult<Region> {
+        let mut region_vec = Vec::new();
+
+        // Try to iterate over the input
+        let iter = PyIterator::from_object(regions)?;
+
+        for item_result in iter {
+            let item = item_result?;
+
+            // Extract each item as a Region
+            let region = item.extract::<PyRef<Region>>()?;
+            region_vec.push(region);
+        }
+        if region_vec.is_empty() {
             return Err(PyValueError::new_err("At least one region expected"));
         }
 
-        let min_x = regions.iter().map(|r| r.x).min().unwrap();
-        let max_x = regions.iter().map(|r| r.right()).max().unwrap();
-        let min_y = regions.iter().map(|r| r.y).min().unwrap();
-        let max_y = regions.iter().map(|r| r.bottom()).max().unwrap();
+        let min_x = region_vec.iter().map(|r| r.x).min().unwrap();
+        let max_x = region_vec.iter().map(|r| r.right()).max().unwrap();
+        let min_y = region_vec.iter().map(|r| r.y).min().unwrap();
+        let max_y = region_vec.iter().map(|r| r.bottom()).max().unwrap();
 
         Ok(Region {
             x: min_x,
@@ -366,15 +504,19 @@ impl Region {
     }
 
     #[classmethod]
-    fn from_offset(_cls: &Bound<'_, PyType>, offset: (i32, i32), size: (i32, i32)) -> Region {
-        let (x, y) = offset;
-        let (width, height) = size;
-        Region {
+    fn from_offset(
+        _cls: &Bound<'_, PyType>,
+        offset: &Bound<PyAny>,
+        size: &Bound<PyAny>,
+    ) -> PyResult<Region> {
+        let (x, y) = extract_integer_pair(offset)?;
+        let (width, height) = extract_integer_pair(size)?;
+        Ok(Region {
             x,
             y,
             width,
             height,
-        }
+        })
     }
 
     #[classmethod]
@@ -391,7 +533,7 @@ impl Region {
         }
 
         let (window_left, window_top, window_right, window_bottom) = window_region.corners();
-        let region = region.crop_size(window_region.size()._as_tuple());
+        let region = region._crop_size(window_region.size()._as_tuple());
         let (left, top_, right, bottom) = region.corners();
         let mut delta_x = 0;
         let mut delta_y = 0;
@@ -458,29 +600,23 @@ impl Region {
     }
 
     fn __add__(&self, rhs: &Bound<PyAny>) -> PyResult<Region> {
-        if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
-            Ok(Region {
-                x: self.x + x,
-                y: self.y + y,
-                width: self.width,
-                height: self.height,
-            })
-        } else {
-            Err(PyTypeError::new_err("Expected tuple of (int, int)"))
-        }
+        let (x, y) = extract_integer_pair(rhs)?;
+        Ok(Region {
+            x: self.x + x,
+            y: self.y + y,
+            width: self.width,
+            height: self.height,
+        })
     }
 
     fn __sub__(&self, rhs: &Bound<PyAny>) -> PyResult<Region> {
-        if let Ok((x, y)) = rhs.extract::<(i32, i32)>() {
-            Ok(Region {
-                x: self.x - x,
-                y: self.y - y,
-                width: self.width,
-                height: self.height,
-            })
-        } else {
-            Err(PyTypeError::new_err("Expected tuple of (int, int)"))
-        }
+        let (x, y) = extract_integer_pair(rhs)?;
+        Ok(Region {
+            x: self.x - x,
+            y: self.y - y,
+            width: self.width,
+            height: self.height,
+        })
     }
 
     fn get_spacing_between(&self, region: &Region) -> Spacing {
@@ -621,7 +757,12 @@ impl Region {
         }
     }
 
-    fn crop_size(&self, size: (i32, i32)) -> Region {
+    fn crop_size(&self, size: &Bound<PyAny>) -> PyResult<Region> {
+        let size = extract_integer_pair(size)?;
+        Ok(self._crop_size(size))
+    }
+
+    fn _crop_size(&self, size: (i32, i32)) -> Region {
         Region {
             x: self.x,
             y: self.y,
@@ -651,9 +792,14 @@ impl Region {
         self.x + self.width > x && x >= self.x && self.y + self.height > y && y >= self.y
     }
 
-    fn contains_point(&self, point: (i32, i32)) -> bool {
-        let (x, y) = point;
-        self.contains(x, y)
+    fn contains_point(&self, point: &Bound<PyAny>) -> PyResult<bool> {
+        if let Ok((x, y)) = point.extract::<(i32, i32)>() {
+            Ok(self.contains(x, y))
+        } else if let Ok(GeometryOffset { x, y }) = point.extract::<GeometryOffset>() {
+            Ok(self.contains(x, y))
+        } else {
+            Err(PyTypeError::new_err("Expected tuple of (int, int)"))
+        }
     }
 
     fn contains_region(&self, other: &Region) -> bool {
@@ -689,15 +835,25 @@ impl Region {
 
     fn clip(&self, width: i32, height: i32) -> Region {
         let (x1, y1, x2, y2) = self.corners();
+        let x = clamp(x1, 0, width);
+        let y = clamp(y1, 0, height);
         Region {
-            x: clamp(x1, 0, width),
-            y: clamp(y1, 0, height),
-            width: clamp(x2, 0, width),
-            height: clamp(y2, 0, height),
+            x,
+            y,
+            width: clamp(x2, 0, width) - x,
+            height: clamp(y2, 0, height) - y,
         }
     }
 
-    fn grow(&self, margin: (i32, i32, i32, i32)) -> Region {
+    fn grow(&self, margin: &Bound<PyAny>) -> PyResult<Region> {
+        let grow_margin = extract_integer_quad(margin)?;
+        if grow_margin == (0, 0, 0, 0) {
+            return Ok(self.clone());
+        }
+        Ok(self._grow(grow_margin))
+    }
+
+    fn _grow(&self, margin: (i32, i32, i32, i32)) -> Region {
         if margin == (0, 0, 0, 0) {
             return self.clone();
         }
@@ -711,12 +867,20 @@ impl Region {
         Region {
             x: x - left,
             y: y - top,
-            width: 0.max(width + left + right),
-            height: 0.max(height + top + bottom),
+            width: 0.max(width + (left + right)),
+            height: 0.max(height + (top + bottom)),
         }
     }
 
-    fn shrink(&self, margin: (i32, i32, i32, i32)) -> Region {
+    fn shrink(&self, margin: &Bound<PyAny>) -> PyResult<Region> {
+        let shrink_margin = extract_integer_quad(margin)?;
+        if shrink_margin == (0, 0, 0, 0) {
+            return Ok(self.clone());
+        }
+        Ok(self._shrink(shrink_margin))
+    }
+
+    fn _shrink(&self, margin: (i32, i32, i32, i32)) -> Region {
         if margin == (0, 0, 0, 0) {
             return self.clone();
         }
@@ -861,6 +1025,32 @@ impl Region {
         )
     }
 
+    fn split_vertical(&self, mut cut: i32) -> (Region, Region) {
+        let Region {
+            x,
+            y,
+            width,
+            height,
+        } = *self;
+        if cut < 0 {
+            cut = width + cut;
+        }
+        (
+            Region {
+                x,
+                y,
+                width: cut,
+                height,
+            },
+            Region {
+                x: x + cut,
+                y,
+                width: width - cut,
+                height,
+            },
+        )
+    }
+
     #[pyo3(signature=(container, x_axis=true, y_axis=true))]
     fn translate_inside(&self, container: &Region, x_axis: bool, y_axis: bool) -> Region {
         let Region {
@@ -926,7 +1116,7 @@ impl Region {
         margin: &Spacing,
         container: &Region,
     ) -> Region {
-        let margin_region = self.grow(margin._as_tuple());
+        let margin_region = self._grow(margin._as_tuple());
         let mut region = *self;
 
         fn compare_span(
@@ -969,7 +1159,7 @@ impl Region {
         }
 
         region.translate_inside(
-            &container.shrink(margin._as_tuple()),
+            &container._shrink(margin._as_tuple()),
             constrain_x != "none",
             constrain_y != "none",
         )
@@ -999,17 +1189,13 @@ pub struct Spacing {
 #[pymethods]
 impl Spacing {
     #[new]
-    fn new(
-        top: Option<i32>,
-        right: Option<i32>,
-        bottom: Option<i32>,
-        left: Option<i32>,
-    ) -> Spacing {
+    #[pyo3(signature=(top=0, right=0, bottom=0, left=0))]
+    fn new(top: i32, right: i32, bottom: i32, left: i32) -> Spacing {
         Spacing {
-            top: top.unwrap_or(0),
-            right: right.unwrap_or(0),
-            bottom: bottom.unwrap_or(0),
-            left: left.unwrap_or(0),
+            top,
+            right,
+            bottom,
+            left,
         }
     }
     fn __repr__(&self) -> String {
@@ -1034,8 +1220,80 @@ impl Spacing {
         4
     }
 
+    fn __eq__(&self, rhs: &Spacing) -> bool {
+        self.top == rhs.top
+            && self.right == rhs.right
+            && self.bottom == rhs.bottom
+            && self.left == rhs.left
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut hasher = DefaultHasher::new();
+        self.top.hash(&mut hasher);
+        self.right.hash(&mut hasher);
+        self.bottom.hash(&mut hasher);
+        self.left.hash(&mut hasher);
+        hasher.finish() as isize
+    }
+
     fn _as_tuple(&self) -> (i32, i32, i32, i32) {
         (self.top, self.right, self.bottom, self.left)
+    }
+
+    fn __add__(&self, rhs: &Bound<PyAny>) -> PyResult<Spacing> {
+        if let Ok((top, right, bottom, left)) = rhs.extract::<(i32, i32, i32, i32)>() {
+            Ok(Spacing {
+                top: self.top + top,
+                right: self.right + right,
+                bottom: self.bottom + bottom,
+                left: self.left + left,
+            })
+        } else if let Ok(Spacing {
+            top,
+            right,
+            bottom,
+            left,
+        }) = rhs.extract::<Spacing>()
+        {
+            Ok(Spacing {
+                top: self.top + top,
+                right: self.right + right,
+                bottom: self.bottom + bottom,
+                left: self.left + left,
+            })
+        } else {
+            Err(PyTypeError::new_err(
+                "Expected tuple of (int, int, int, int)",
+            ))
+        }
+    }
+
+    fn __sub__(&self, rhs: &Bound<PyAny>) -> PyResult<Spacing> {
+        if let Ok((top, right, bottom, left)) = rhs.extract::<(i32, i32, i32, i32)>() {
+            Ok(Spacing {
+                top: self.top - top,
+                right: self.right - right,
+                bottom: self.bottom - bottom,
+                left: self.left - left,
+            })
+        } else if let Ok(Spacing {
+            top,
+            right,
+            bottom,
+            left,
+        }) = rhs.extract::<Spacing>()
+        {
+            Ok(Spacing {
+                top: self.top - top,
+                right: self.right - right,
+                bottom: self.bottom - bottom,
+                left: self.left - left,
+            })
+        } else {
+            Err(PyTypeError::new_err(
+                "Expected tuple of (int, int, int, int)",
+            ))
+        }
     }
 
     #[getter]
@@ -1058,8 +1316,23 @@ impl Spacing {
         self.top.max(self.bottom)
     }
 
+    #[getter]
+    fn top_left(&self) -> (i32, i32) {
+        (self.left, self.top)
+    }
+
+    #[getter]
+    fn bottom_right(&self) -> (i32, i32) {
+        (self.right, self.bottom)
+    }
+
+    #[getter]
+    fn totals(&self) -> (i32, i32) {
+        (self.left + self.right, self.top + self.bottom)
+    }
+
     fn __bool__(&self) -> bool {
-        self.top != 0 || self.right != 0 || self.bottom != 0 || self.right != 0
+        self.top != 0 || self.right != 0 || self.bottom != 0 || self.left != 0
     }
 
     #[getter]
@@ -1110,9 +1383,44 @@ impl Spacing {
                 left: left,
             })
         } else {
-            Err(PyTypeError::new_err(
-                "Expected integer or tuple of 1, 2, 4 integers",
-            ))
+            let iter = PyIterator::from_object(pad)?;
+            let mut values = Vec::new();
+
+            for item in iter {
+                let item = item?;
+                let value: i32 = item.extract()?;
+                values.push(value);
+
+                if values.len() > 4 {
+                    return Err(PyValueError::new_err(
+                        "Too many values to unpack (expected max 4)",
+                    ));
+                }
+            }
+
+            match values.len() {
+                1 => Ok(Spacing {
+                    top: values[0],
+                    right: values[0],
+                    bottom: values[0],
+                    left: values[0],
+                }),
+                2 => Ok(Spacing {
+                    top: values[0],
+                    right: values[1],
+                    bottom: values[0],
+                    left: values[1],
+                }),
+                4 => Ok(Spacing {
+                    top: values[0],
+                    right: values[1],
+                    bottom: values[2],
+                    left: values[3],
+                }),
+                _ => Err(PyValueError::new_err(
+                    "Expected integer or tuple of 1, 2, 4 integers",
+                )),
+            }
         }
     }
 
