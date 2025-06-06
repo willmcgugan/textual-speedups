@@ -34,7 +34,7 @@ These classes are used a lot internally when updating layout in particular.
 ## How much faster?
 
 That is yet to be determined.
-A little profiling suggests that pretty much all methods are several of magnitude faster than the pure-Python versions.
+A little profiling suggests that pretty much all methods are several orders of magnitude faster than the pure-Python versions.
 This should add up to a respectable improvement, but until I've written a benchmark tool I won't be able to quantify that.
 
 Note that unless your Textual app is particularly complex, you might not even notice a difference!
