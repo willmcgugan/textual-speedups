@@ -105,21 +105,6 @@ pub struct GeometryOffset {
     pub y: i32,
 }
 
-#[derive(FromPyObject)]
-enum OffsetPair {
-    Tuple((i32, i32)),
-    Offset(GeometryOffset),
-}
-
-impl OffsetPair {
-    fn to_tuple(&self) -> (i32, i32) {
-        match self {
-            OffsetPair::Tuple(tuple) => *tuple,
-            OffsetPair::Offset(offset) => (offset.x, offset.y),
-        }
-    }
-}
-
 #[pymethods]
 impl GeometryOffset {
     #[new]
@@ -165,8 +150,11 @@ impl GeometryOffset {
         }
     }
 
-    fn __eq__(&self, rhs: &GeometryOffset) -> bool {
-        self.x == rhs.x && self.y == rhs.y
+    fn __eq__(&self, rhs: &Bound<PyAny>) -> PyResult<bool> {
+        match extract_integer_pair(rhs) {
+            Ok(offset) => Ok(self.x == offset.0 && self.y == offset.1),
+            _ => Ok(false),
+        }
     }
 
     fn __hash__(&self) -> isize {
@@ -237,6 +225,11 @@ impl GeometryOffset {
                 x: (self.x as f64 * factor.0).floor() as i32,
                 y: (self.y as f64 * factor.1).floor() as i32,
             })
+        } else if let Ok(size) = rhs.extract::<Size>() {
+            Ok(GeometryOffset {
+                x: (self.x * size.width) as i32,
+                y: (self.y * size.height) as i32,
+            })
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                 "Can't multiply by this type",
@@ -304,8 +297,11 @@ impl Size {
         }
     }
 
-    fn __eq__(&self, rhs: &Size) -> bool {
-        self.width == rhs.width && self.height == rhs.height
+    fn __eq__(&self, rhs: &Bound<PyAny>) -> PyResult<bool> {
+        match extract_integer_pair(rhs) {
+            Ok(size) => Ok(self.width == size.0 && self.height == size.1),
+            _ => Ok(false),
+        }
     }
 
     fn __hash__(&self) -> isize {
@@ -748,13 +744,14 @@ impl Region {
         }
     }
 
-    fn at_offset(&self, offset: (i32, i32)) -> Region {
-        Region {
-            x: offset.0,
-            y: offset.1,
+    fn at_offset(&self, offset: &Bound<PyAny>) -> PyResult<Region> {
+        let (x, y) = extract_integer_pair(offset)?;
+        Ok(Region {
+            x: x,
+            y: y,
             width: self.width,
             height: self.height,
-        }
+        })
     }
 
     fn crop_size(&self, size: &Bound<PyAny>) -> PyResult<Region> {
@@ -811,14 +808,14 @@ impl Region {
             && (y2 >= oy2 && oy2 >= y1);
     }
 
-    fn translate(&self, offset: OffsetPair) -> Region {
-        let (offset_x, offset_y) = offset.to_tuple();
-        Region {
+    fn translate(&self, offset: &Bound<PyAny>) -> PyResult<Region> {
+        let (offset_x, offset_y) = extract_integer_pair(offset)?;
+        Ok(Region {
             x: self.x + offset_x,
             y: self.y + offset_y,
             width: self.width,
             height: self.height,
-        }
+        })
     }
 
     fn __contains__(&self, rhs: &Bound<PyAny>) -> bool {
