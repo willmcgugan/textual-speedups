@@ -13,17 +13,16 @@ To use textual-speedups, install it in to the same environment as your Textual a
 pip install textual-speedups
 ```
 
-Then run your Textual app with the environment variable `TEXTUAL_SPEEDUPS=1`.
+Or add `textual-speedups` to your dependences.
+Textual will use the speedups library automatically.
+
+If you ever want to disable speedups in case of a bug or you want to compare with and without speedups, then set `TEXTUAL_SPEEDUPS=0`.
+
 For example:
 
 ```bash
-TEXTUAL_SPEEDUPS=1 python -m textual
+TEXTUAL_SPEEDUPS=0 python -m textual
 ```
-
-Note, that you will need the current main version to enable the speedups.
-
-The environment variable is there to discourage use in production.
-In the future when I am more confident in stability then the environment variable will be used to opt-out of the Rust speedups.
 
 ## What is faster?
 
