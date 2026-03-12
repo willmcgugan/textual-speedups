@@ -36,6 +36,8 @@ jobs:
             target: s390x
           - runner: ubuntu-22.04
             target: ppc64le
+          - runner: ubuntu-22.04
+            target: riscv64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
