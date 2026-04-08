@@ -2,9 +2,6 @@
 
 Optional Rust speedups for [Textual](https://github.com/textualize/textual).
 
-This module implements some of Textual's classes in Rust, which should make Textual apps faster.
-It is currently experimental, and shouldn't be used in production.
-
 ## How to use
 
 To use textual-speedups, install it in to the same environment as your Textual app:
