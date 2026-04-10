@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn textual_speedups(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.gil_used(false)?;
     // m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_class::<geometry::GeometryOffset>()?;
     m.add_class::<geometry::Size>()?;
