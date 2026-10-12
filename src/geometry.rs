@@ -96,7 +96,7 @@ pub fn clamp<T: Ord + Copy>(value: T, minimum: T, maximum: T) -> T {
     }
 }
 
-#[pyclass(name = "Offset")]
+#[pyclass(from_py_object, name = "Offset")]
 #[derive(Debug, Clone)]
 pub struct GeometryOffset {
     #[pyo3(get)]
@@ -267,7 +267,7 @@ impl GeometryOffset {
     }
 }
 
-#[pyclass(frozen)]
+#[pyclass(from_py_object, frozen)]
 #[derive(Debug, Clone)]
 pub struct Size {
     #[pyo3(get)]
@@ -371,7 +371,7 @@ impl Size {
     }
 
     #[getter]
-    fn line_range(&self, py: Python) -> PyResult<PyObject> {
+    fn line_range(&self, py: Python) -> PyResult<Py<PyAny>> {
         let range = PyRange::new(py, 0, self.height as isize)?;
         Ok(range.into())
     }
@@ -419,7 +419,7 @@ impl Size {
     }
 }
 
-#[pyclass(frozen)]
+#[pyclass(from_py_object, frozen)]
 #[derive(Debug, Clone, Copy)]
 pub struct Region {
     #[pyo3(get)]
@@ -723,13 +723,13 @@ impl Region {
     }
 
     #[getter]
-    fn column_range(&self, py: Python) -> PyResult<PyObject> {
+    fn column_range(&self, py: Python) -> PyResult<Py<PyAny>> {
         let range = PyRange::new(py, self.x as isize, (self.x + self.width) as isize)?;
         Ok(range.into())
     }
 
     #[getter]
-    fn line_range(&self, py: Python) -> PyResult<PyObject> {
+    fn line_range(&self, py: Python) -> PyResult<Py<PyAny>> {
         let range = PyRange::new(py, self.y as isize, (self.y + self.height) as isize)?;
         Ok(range.into())
     }
@@ -1170,7 +1170,7 @@ enum SpacingDimensions {
     Tuple4(i32, i32, i32, i32),
 }
 
-#[pyclass(frozen)]
+#[pyclass(from_py_object, frozen)]
 #[derive(Debug, Clone, Copy)]
 pub struct Spacing {
     #[pyo3(get)]
